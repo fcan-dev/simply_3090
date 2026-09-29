@@ -9,6 +9,11 @@ The whole thing is resident in ~23.9 GiB of the 24.6 GiB. This folder is the
 complete, runnable setup: the compose file, start/stop/power-limit scripts,
 and the underclock measurements behind the power cap.
 
+**This is my go-to local coding setup** — the model my pi coding agent runs
+against day to day. It's the highest-quality 27B I can keep at full context on
+one consumer card, and it's prod-grade for real coding work: always up, 256k
+context, no cloud.
+
 ## TL;DR
 
 | | |
@@ -24,6 +29,16 @@ and the underclock measurements behind the power cap.
 | Power | 350 W cap (the 3090 Ti's default is 450 W; on a 3090, 350 W *is* the card default) |
 | Speed (measured, 350 W) | ~1,185 tok/s prefill / ~66 tok/s long-context decode; 77.6 tok/s short-prompt decode |
 | API | OpenAI-compatible on port 8091 (health at `/health`, metadata at `/props`) |
+
+## Why Q4_K_XL
+
+![Qwen3.8-27B GGUF quant ladder — top-1% accuracy vs quant size by provider; the running quant UD-Q4_K_XL is circled](media/quant-ladder-q4kxl.png)
+
+*Top-1% accuracy vs quant size (MTP head removed) across GGUF providers.
+The circled **UD-Q4_K_XL** is the highest quant I run at full 262k context on
+24 GB — everything above it (Q5/Q6/Q8) no longer fits once the full-context KV
+pool is allocated. It's the point where I call the quality prod-grade for
+daily pi-agent coding.*
 
 ## Why it fits (the two-variable fit)
 
