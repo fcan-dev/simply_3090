@@ -2,7 +2,7 @@
 # Qwen3.8-27B — single 24 GB card (RTX 3090 / 3090 Ti), full 262k context
 # ---------------------------------------------------------------------------
 # Model:     Qwen3.8-27B (Unsloth UD-Q4_K_XL GGUF, 16.34 GiB) + mmproj-F16 ON CPU
-# Engine:    llama.cpp server-cuda-b11223 (pinned)   |   single GPU, TP=1
+# Engine:    llama.cpp server-cuda-b11223 (pinned, stock — no custom patches)   |   single GPU, TP=1
 # Drafter:   built-in MTP, n=2 (head embedded in the GGUF)
 # KV:        q4_0 / q4_0   |   Context: 262,144 (full n_ctx_train)
 #

@@ -1,8 +1,8 @@
 # Qwen3.8-27B on a single 24 GB card (RTX 3090 / 3090 Ti)
 
 Qwen3.8-27B (Unsloth `UD-Q4_K_XL` GGUF) with **full 262,144-token context**,
-the **built-in MTP drafter**, and **vision** — running on a single GeForce
-RTX 3090 or 3090 Ti (24 GB), llama.cpp in Docker, pinned at an
+the **built-in MTP drafter**, and **vision** — running on 1x3090 or 3090 Ti (24 GB), 
+stock llama.cpp in Docker (no custom patches to the engine), pinned at an
 energy-optimised **350 W** power cap.
 
 The whole thing is resident in ~23.9 GiB of the 24.6 GiB. This folder is the
@@ -11,22 +11,21 @@ and the underclock measurements behind the power cap.
 
 **This is my go-to local coding setup** — the model my pi coding agent runs
 against day to day. It's the highest-quality 27B I can keep at full context on
-one consumer card, and it's prod-grade for real coding work: always up, 256k
-context, no cloud.
+one consumer card.
 
 ## TL;DR
 
 | | |
 |---|---|
 | Model | Qwen3.8-27B — `Qwen3.8-27B-UD-Q4_K_XL.gguf` (16.34 GiB) + `mmproj-F16.gguf` |
-| Engine | llama.cpp `server-cuda-b11223` (Docker, pinned) |
+| Engine | llama.cpp `server-cuda-b11223` (Docker, pinned) — stock upstream, no custom patches |
 | Context | 262,144 tokens (full `n_ctx_train`) |
 | KV cache | q4_0 keys + q4_0 values (~4.5 GiB) |
 | Speculative decode | built-in MTP drafter, n=2 (~76% draft acceptance, short prompts) |
 | Vision | mmproj-F16 on **CPU** (`--no-mmproj-offload`) |
 | Batching | `-b 2048 -ub 256` — **required to fit** |
 | VRAM | ~23.9 GiB resident of 24.6 GiB |
-| Power | 350 W cap (the 3090 Ti's default is 450 W; on a 3090, 350 W *is* the card default) |
+| Power | 350 W cap (the 3090 Ti's default is 450 W; on a 3090, 350 W is the card default) |
 | Speed (measured, 350 W) | ~1,185 tok/s prefill / ~66 tok/s long-context decode; 77.6 tok/s short-prompt decode |
 | API | OpenAI-compatible on port 8091 (health at `/health`, metadata at `/props`) |
 
