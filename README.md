@@ -1,6 +1,6 @@
 # simply_3090
 
-Running serious local LLMs on a single GeForce RTX 3090 / 3090 Ti (24 GB) —
+Running local LLMs on a single GeForce RTX 3090 / 3090 Ti (24 GB) —
 one consumer card, Docker, no cluster. Each subfolder is one working setup,
 fully documented: what it is, why each flag exists, measured numbers, and
 scripts you can actually run on your own box.
@@ -9,7 +9,7 @@ scripts you can actually run on your own box.
 
 | Folder | What it runs | Highlights |
 |---|---|---|
-| [`qwen3.8-27b/`](qwen3.8-27b/) | Qwen3.8-27B (Q4_K_XL) + vision, **262k context**, built-in MTP drafter | full 256k context on 24 GB; energy-optimised 350 W power cap with the measured underclock sweep behind it |
+| [`qwen3.8-27b/`](qwen3.8-27b/) | Qwen3.8-27B (Q4_K_XL) + vision, **262k context**, vision offloaded to CPU, built-in MTP drafter | full 256k context on 24 GB; energy-optimised 350 W power cap with the measured underclock sweep behind it |
 
 Every setup folder is self-contained:
 

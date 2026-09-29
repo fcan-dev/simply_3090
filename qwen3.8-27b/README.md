@@ -37,7 +37,7 @@ alone is enough:
    **~324 MiB short**: the boot dies in `cudaMalloc` while allocating the MTP
    draft context's compute workspace.
 2. **Smaller micro-batch** (`-b 2048 -ub 256` instead of 4096/512): shrinks
-   the compute workspace by ~650 MiB. **This** is the change that closes the
+   the compute workspace by ~650 MiB. This is the change that closes the
    gap.
 
 Measured boot record (this exact compose, single 3090 Ti):
@@ -65,15 +65,6 @@ cd qwen3.8-27b
 mkdir -p models
 hf download unsloth/Qwen3.8-27B-GGUF Qwen3.8-27B-UD-Q4_K_XL.gguf --local-dir models
 hf download unsloth/Qwen3.8-27B-GGUF mmproj-F16.gguf --local-dir models
-```
-
-…or plain curl:
-
-```bash
-curl -L -o models/Qwen3.8-27B-UD-Q4_K_XL.gguf \
-  https://huggingface.co/unsloth/Qwen3.8-27B-GGUF/resolve/main/Qwen3.8-27B-UD-Q4_K_XL.gguf
-curl -L -o models/mmproj-F16.gguf \
-  https://huggingface.co/unsloth/Qwen3.8-27B-GGUF/resolve/main/mmproj-F16.gguf
 ```
 
 Already have a copy somewhere else? Point the setup at it:
@@ -110,15 +101,9 @@ curl http://localhost:8091/v1/chat/completions -H 'content-type: application/jso
 ./scripts/stop.sh --restore-power        # remove the 350 W cap (back to card default)
 ```
 
-### 5. Make the power cap survive reboots
-
-The container is `restart: unless-stopped` and comes back on boot **without**
-running `start.sh` — so the cap also needs to live in systemd:
-
-```bash
-./scripts/install-power-limit.sh         # installs + enables gpu-power-limit.service
-./scripts/install-power-limit.sh --uninstall
-```
+**Reboot:** the container is `restart: unless-stopped` and comes back on boot
+**without** running `start.sh` — so run `./scripts/install-power-limit.sh` once
+to make the cap persistent (systemd; `--uninstall` to remove).
 
 ## Card-aware power cap: 3090 vs 3090 Ti
 
@@ -140,22 +125,13 @@ a real long-context coding workload (~20k-token prompt, 1024-token
 generations, 3 reps per point, GPU power sampled at 10 Hz via
 `nvidia-smi power.draw`) gives:
 
-| Power limit | Decode tok/s | Decode W | Decode J/tok | Prefill tok/s | Prefill W | Prefill J/tok |
-|---|---|---|---|---|---|---|
-| 250 W | 38.1 | 245.9 | 6.50 | 773 | 240.7 | 0.316 |
-| 270 W | 43.4 | 265.4 | 6.17 | 845 | 259.0 | 0.312 |
-| 290 W | 47.5 | 284.4 | 6.03 | 944 | 275.8 | 0.298 |
-| 300 W | 51.4 | 293.1 | 5.76 | 989 | 284.4 | 0.293 |
-| 310 W | 54.0 | 302.6 | 5.67 | 1034 | 293.1 | 0.289 |
-| 320 W | 57.4 | 312.1 | 5.50 | 1077 | 302.2 | 0.287 |
-| 330 W | 58.7 | 320.8 | 5.53 | 1116 | 310.7 | **0.285** |
-| 340 W | 62.0 | 328.9 | 5.36 | 1147 | 319.6 | **0.285** |
-| **350 W** | **66.0** | 337.4 | **5.17** | **1185** | 326.6 | 0.282 |
-| 360 W | 69.6 | 347.3 | 5.05 | 1190 | 336.7 | 0.290 |
-| 370 W | 70.1 | 357.4 | 5.16 | 1201 | 344.7 | 0.294 |
-| 380 W | 71.5 | 365.5 | 5.18 | 1210 | 354.0 | 0.300 |
-| 390 W | 72.3 | 373.4 | 5.23 | 1219 | 363.2 | 0.305 |
-| 400 W | 74.0 | 385.4 | 5.27 | 1228 | 371.6 | 0.310 |
+| Power limit | Decode tok/s | Decode J/tok | Prefill tok/s | Prefill J/tok |
+|---|---|---|---|---|
+| 250 W | 38.1 | 6.50 | 773 | 0.316 |
+| 300 W | 51.4 | 5.76 | 989 | 0.293 |
+| **350 W** | **66.0** | **5.17** | **1185** | 0.282 |
+| 380 W | 71.5 | 5.18 | 1210 | 0.300 |
+| 400 W | 74.0 | 5.27 | 1228 | 0.310 |
 
 ![Underclock sweep 250–400 W: decode and prefill energy cost vs measured GPU power, speed vs power, and tok/s per watt. Knee ≈ 350 W.](media/energy_speed_full.png)
 
@@ -166,15 +142,11 @@ point, and tok/s per measured watt:
 
 **Findings**
 
-- The efficiency knee is broad, roughly **340–370 W**. 350 W is within ~1% of
-  the minimum J/token for **both** prefill and decode.
-- Prefill energy cost is a clean U with its minimum at ~320–340 W; decode
-  keeps improving down to ~350–370 W, then flattens.
-- Below ~320 W you are past the knee: decode energy climbs ~20% and prefill
-  worsens too.
-- Net: at 350 W the server keeps **~91% of prefill and ~78% of long-context
-  decode speed** versus the 450 W default, at **~80% of the power**.
-- Session-to-session variance is ~3%; differences under that are noise.
+- The knee is broad (~340–370 W); 350 W is within ~1% of the minimum J/token
+  for **both** prefill and decode. Below ~320 W, decode energy climbs ~20%.
+- Net: at 350 W you keep **~91% of prefill and ~78% of long-context decode
+  speed** versus the 450 W default, at **~80% of the power**.
+- Session-to-session variance ~3%; differences under that are noise.
 
 Caveats: energy is **GPU power only** (`nvidia-smi power.draw`) — no CPU, PSU
 or VRM losses. Absolute J/tok is run-length dependent (a 512-token run reads
@@ -188,14 +160,9 @@ depth (~20k tokens) was swept.
 | `-m` | `Qwen3.8-27B-UD-Q4_K_XL.gguf` | 16.34 GiB Unsloth dynamic quant — closer to base than IQ4_XS, keeps the MTP head usable |
 | `--mmproj` + `--no-mmproj-offload` | F16 projector, **CPU** | **Fit requirement.** Projector (928 MB) out of VRAM; alone it is 324 MiB short — see [fit story](#why-it-fits-the-two-variable-fit) |
 | `-b 2048 -ub 256` | batch / micro-batch | **Fit requirement.** ~650 MiB smaller compute workspace; at 4096/512 the boot OOMs by 324 MiB. Cost: prefill throughput |
-| `-c 262144` | full context | the point of the whole exercise |
-| `--cache-type-k/v q4_0` | KV quant | halves the 262k KV pool to ~4.5 GiB — the only thing that makes full context allocatable on 24 GB; disclosed quality trade |
-| `-ngl 99`, `-fa on` | all layers GPU, flash attention | standard |
+| `-c 262144` + `--cache-type-k/v q4_0` | full context, halved KV | q4_0 KV is what makes 262k allocatable on 24 GB (~4.5 GiB); disclosed quality trade |
 | `-np 1` | one slot | extra slots each take their own KV slice; the 262k pool leaves no room |
-| `--spec-type draft-mtp`, `--spec-draft-n-max 2` | MTP drafter | the quant embeds the MTP head (`blk.64.nextn.*`); ~76% draft acceptance on short prompts. `SPEC_N=0` disables |
-| `--jinja` | native template | template is embedded in the GGUF |
-| `--reasoning on`, deepseek format, temp 1.0 / top-p 0.95 / top-k 20 | thinking-mode sampler | the card's thinking row; everything is env-overridable in the compose file |
-| `--alias qwen3.8-27b-q4kxl` | served name | what you put in `model` |
+| `--spec-type draft-mtp`, `--spec-draft-n-max 2` | MTP drafter | the quant embeds the MTP head; ~76% draft acceptance on short prompts. `SPEC_N=0` disables |
 
 ## Measured
 
@@ -251,14 +218,3 @@ nvidia-smi --query-gpu=power.limit --format=csv
   on a 3090 Ti. The knee's *shape* is robust; your exact optimum may sit a
   few tens of watts off.
 
-## Files
-
-```
-README.md                        this write-up
-compose/docker-compose.yml       the setup — header carries the full measured boot record
-scripts/start.sh                 power cap (card-aware) → VRAM preflight → up → health wait
-scripts/stop.sh                  down + GPU report; --free-desktop, --restore-power
-scripts/install-power-limit.sh   install/uninstall the reboot-persistent 350 W unit
-scripts/gpu-power-limit.service  the systemd unit
-media/                           the underclock plots referenced above
-```
