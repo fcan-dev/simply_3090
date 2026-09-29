@@ -1,0 +1,162 @@
+# ===========================================================================
+# Qwen3.8-27B — single 24 GB card (RTX 3090 / 3090 Ti), full 262k context
+# ---------------------------------------------------------------------------
+# Model:     Qwen3.8-27B (Unsloth Dynamic UD-Q4_K_XL GGUF, 16.34 GiB)
+#            + mmproj-F16 (928 MB) ON CPU (--no-mmproj-offload)
+# Engine:    llama.cpp server-cuda-b11223 (pinned)
+# Topology:  single GPU (TP=1)
+# Drafter:   built-in MTP, n=2 (--spec-type draft-mtp; head EMBEDDED in GGUF)
+# KV:        q4_0 K + q4_0 V (halved pool — what makes 262k allocatable on 24 GB)
+# Context:   262,144 (full n_ctx_train)
+# Template:  native (GGUF-embedded) via --jinja
+#
+# WHY THIS COMPOSE EXISTS (the 2-variable fit):
+#   Q4_K_XL is ~3 GiB of weights over the smaller 13.3 GiB sibling quant.
+#   Two changes buy the difference, and NEITHER ONE ALONE IS ENOUGH:
+#     (1) --no-mmproj-offload : projector out of VRAM          (-884 MiB)
+#     (2) -b 2048 -ub 256     : smaller compute workspace      (~-650 MiB)
+#   ⚠️ (1) ALONE IS NOT ENOUGH. With only the mmproj-to-CPU trick this config
+#   is ~324 MiB short and the boot dies in cudaMalloc. (2) is what closes it.
+#
+# MEASURED (fit) — 2026-09-27, single 3090 Ti, this exact compose:
+#   Attempt 1 (-b 4096 -ub 512, --no-mmproj-offload):  ❌ OOM
+#     E ggml_backend_cuda_buffer_type_alloc_buffer: allocating 324.02 MiB on
+#       device 0: cudaMalloc failed: out of memory
+#     E graph_reserve: failed to allocate compute buffers
+#     E llama_init_from_model: failed to initialize the context: failed to
+#       allocate compute pp buffers      (needed 339,755,136 B)
+#     E srv load_model: failed to create MTP context   → server exits
+#     ⇒ the failing allocation is the MTP DRAFT context's compute workspace;
+#       the main context had already allocated. (llama.cpp's own auto-fit
+#       pass warned first: "failed to fit params to free device memory:
+#       n_gpu_layers already set by user to 99, abort".)
+#   Attempt 2 (-b 2048 -ub 256, --no-mmproj-offload):  ✅ BOOTS
+#     Load: 23,822 MiB of 24,564  →  742 MiB headroom
+#     n_ctx_slot = 262144, "loaded multimodal model"
+#     Vision probe (blue-circle + red-7, 384×384): peak 23,844 MiB —
+#       +0 MiB delta during image encode, recognition CORRECT
+#     Zero cudaMalloc failures across the whole session
+#
+# MEASURED (function) — 2026-09-27, same boot, GPU0:
+#   Text (short prompt)   : decode 77.6 tok/s; MTP draft 47/62 accepted = 76%
+#   Vision (384×384 probe): "A blue circle and a red number 7" — CORRECT;
+#                           2.6 s end-to-end; ~110 tok/s prompt eval (CPU ViT)
+#   NIAH (needle = ZEBRA-4417-QUARTZ, real-source haystack):
+#     @36,396 tok : FOUND ✅ | prefill 1,186 tok/s | decode 70.8 tok/s
+#     @118,508 tok: FOUND ✅ | prefill   840 tok/s | decode 50.8 tok/s
+#     @247,702 tok: FOUND ✅ | prefill   577 tok/s | decode 33.2 tok/s
+#   Context guard: a 298,340-token request was REJECTED cleanly
+#     ("request (298340 tokens) exceeds the available context size (262144
+#      tokens)") — no OOM, slot released normally.
+#   ⚠️ Prefill degrades with depth (1,186 → 577 tok/s): the -ub 256 cost.
+#
+# VISION (CPU projector) — WHY CPU BEATS GPU HERE:
+#   Mounting the F16 projector IN VRAM (884 MiB) leaves a thin margin with a
+#   transient image-encode spike against it — a large/high-res image at 262k
+#   could OOM. Offloading the tower to CPU removes that spike class entirely
+#   (measured delta for the 384×384 probe was exactly 0 MiB) at the cost of
+#   CPU-bound image prefill (~3× slower on images). With Q4_K_XL at full
+#   context there is simply no VRAM for the projector in the first place.
+#
+# Override defaults via .env or shell:
+#   MODEL_DIR        host dir mounted as /models   (default: ./models)
+#   GGUF_FILE        path under /models            (default: Qwen3.8-27B-UD-Q4_K_XL.gguf)
+#   MMPROJ_FILE      projector under /models       (default: mmproj-F16.gguf)
+#   CTX_SIZE         KV pool size                  (default: 262144)
+#   BATCH_SIZE       llama.cpp -b                  (default: 2048 — the fit lever)
+#   UBATCH_SIZE      llama.cpp -ub                 (default: 256  — the fit lever)
+#   KV_TYPE          K and V quant type            (default: q4_0)
+#   NP               parallel slots                (default: 1)
+#   SERVED_NAME      --alias value                 (default: qwen3.8-27b-q4kxl)
+#   PORT             host port                     (default: 8091)
+#   SPEC_N           MTP draft depth, 0 = off      (default: 2)
+#   CUDA_VISIBLE_DEVICES                         (default: 0)
+#   ⚠️ Raising BATCH_SIZE/UBATCH_SIZE toward 4096/512 re-creates the attempt-1
+#      OOM. If you need prefill speed, drop CTX_SIZE first (e.g. 131072 frees
+#      ~2.2 GiB of KV and buys the larger micro-batch back).
+#
+# Quick start:
+#   ./scripts/start.sh
+#   (or: docker compose -f compose/docker-compose.yml up -d)
+# ===========================================================================
+services:
+  llama-cpp-qwen38-27b-single-q4kxl:
+    image: ghcr.io/ggml-org/llama.cpp:server-cuda-b11223
+    container_name: llama-cpp-qwen38-27b-single-q4kxl
+    restart: unless-stopped
+    ports:
+      - "0.0.0.0:${PORT:-8091}:8080"
+    volumes:
+      - "${MODEL_DIR:-./models}:/models:ro"
+    environment:
+      - SPEC_N=${SPEC_N:-2}
+      - SPEC=${SPEC:-}
+      # default chat-template kwargs for the server
+      - LLAMA_ARG_CHAT_TEMPLATE_KWARGS=${LLAMA_ARG_CHAT_TEMPLATE_KWARGS:-{"reasoning_effort":"low"}}
+      - CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES:-0}
+    # ⚠ -np 1 is intentional: extra slots each take their own KV slice and the
+    #   full 262K pool leaves no room.
+    # ⚠️ BUILT-IN MTP — head EMBEDDED in this GGUF (blk.64.nextn.*).
+    # ⚠️ --no-mmproj-offload is a FIT REQUIREMENT on this quant, not a preference.
+    # ⚠️ -b 2048 / -ub 256 are FIT REQUIREMENTS (see MEASURED attempt 1 above).
+    # ⚠️ The sampler below ships the card's thinking-mode row
+    #   (temp 1.0 / top_p 0.95 / top_k 20 / min_p 0.0); override via env.
+    entrypoint:
+      - /bin/bash
+      - -c
+      - |
+        _spec_n="$${SPEC_N:-2}"
+        case "$${SPEC:-}" in off|OFF|Off|false|no|0) _spec_n=0 ;; esac
+        case "$$_spec_n" in ""|*[!0-9]*)
+          echo "[spec] SPEC_N='$$_spec_n' is not a non-negative integer." >&2
+          echo "[spec] Fix: SPEC_N=<n> sets depth; SPEC_N=0 (or SPEC=off) disables." >&2
+          exit 1 ;;
+        esac
+        if [ "$$_spec_n" -gt 0 ]; then
+          echo "[spec] drafter ON (SPEC_N=$$_spec_n)" >&2
+          exec /app/llama-server "$$@"
+        fi
+        ARGS=(); _skip=0
+        for _a in "$$@"; do
+          if [ "$$_skip" = 1 ]; then _skip=0; continue; fi
+          case "$$_a" in
+            --spec-type|--spec-draft-model|--spec-draft-n-max|--spec-draft-n-min|-md|--model-draft) _skip=1; continue ;;
+          esac
+          ARGS+=("$$_a")
+        done
+        echo "[spec] drafter OFF (SPEC_N=0 / SPEC=off) - drafter flags removed" >&2
+        exec /app/llama-server "$${ARGS[@]}"
+      - --
+    command: >-
+      --host 0.0.0.0
+      --port 8080
+      -m /models/${GGUF_FILE:-Qwen3.8-27B-UD-Q4_K_XL.gguf}
+      --mmproj /models/${MMPROJ_FILE:-mmproj-F16.gguf}
+      --no-mmproj-offload
+      --alias ${SERVED_NAME:-qwen3.8-27b-q4kxl}
+      -c ${CTX_SIZE:-262144}
+      -b ${BATCH_SIZE:-2048}
+      -ub ${UBATCH_SIZE:-256}
+      -ngl 99
+      -fa on
+      --cache-type-k ${KV_TYPE:-q4_0}
+      --cache-type-v ${KV_TYPE:-q4_0}
+      -np ${NP:-1}
+      --spec-type draft-mtp
+      --spec-draft-n-max ${SPEC_N:-2}
+      --jinja
+      --reasoning ${REASONING:-on}
+      --reasoning-format ${REASONING_FORMAT:-deepseek}
+      --temp ${TEMP:-1.0}
+      --top-p ${TOP_P:-0.95}
+      --top-k ${TOP_K:-20}
+      --min-p ${MIN_P:-0.0}
+      --presence-penalty ${PRESENCE_PENALTY:-0.0}
+      --repeat-penalty ${REPEAT_PENALTY:-1.0}
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]

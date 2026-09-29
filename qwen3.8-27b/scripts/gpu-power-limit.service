@@ -1,0 +1,13 @@
+[Unit]
+Description=Lock NVIDIA RTX 3090 / 3090 Ti power limit (350 W; no-op on the 3090, whose default is already 350 W)
+After=nvidia-persistenced.service
+Wants=nvidia-persistenced.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/bin/nvidia-smi -pl 350
+ExecStartPost=/usr/bin/nvidia-smi --query-gpu=power.limit,power.draw --format=csv,noheader
+
+[Install]
+WantedBy=multi-user.target
