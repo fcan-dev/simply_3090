@@ -39,14 +39,3 @@ Every setup folder is self-contained:
 ├── compose/     # docker compose (annotated with the measured boot record)
 └── scripts/     # start / stop / power-limit (run on the GPU box)
 ```
-
-## The card
-
-| | RTX 3090 | RTX 3090 Ti |
-|---|---|---|
-| VRAM | 24 GB GDDR6X | 24 GB GDDR6X |
-| TGP (default power limit) | 350 W | 450 W |
-
-The scripts in this repo are card-aware: on the Ti they underclock to the
-measured 350 W knee; on the plain 3090, 350 W is the card default, so they
-detect that and leave the limit alone.
