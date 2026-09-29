@@ -1,7 +1,7 @@
 # simply_3090
 
 Running local LLMs on a single GeForce RTX 3090 / 3090 Ti (24 GB) —
-one consumer card, Docker, no cluster. Each subfolder is one working setup,
+one consumer card, stock llama.cpp (no custom engine patches), Docker, no cluster. Each subfolder is one working setup,
 fully documented: what it is, why each flag exists, measured numbers, and
 scripts you can actually run on your own box.
 
